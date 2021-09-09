@@ -590,4 +590,11 @@ impl<'a> GptDisk<'a> {
 
         Ok(())
     }
+
+    /// Take the underlying device object and force
+    /// self to drop.  
+    pub fn relinquish_device(self) -> DiskDeviceObject<'a> {
+        self.device
+    }
+
 }
