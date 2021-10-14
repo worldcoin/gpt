@@ -322,11 +322,11 @@ pub(crate) fn read_primary_header<D: Read + Seek>(
 
 pub(crate) fn read_backup_header<D: Read + Seek>(
     file: &mut D,
+    backup_lba: u64,
     sector_size: disk::LogicalBlockSize,
 ) -> Result<Header> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
-    let h2sect = find_backup_lba(file, sector_size)?;
-    let offset = h2sect
+    let offset = backup_lba
         .checked_mul(sector_size.into())
         .ok_or_else(|| Error::new(ErrorKind::Other, "backup header overflow - offset"))?;
     let res = file_read_header(file, offset);
@@ -383,7 +383,7 @@ pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Res
     }
 }
 
-pub(crate) fn find_backup_lba<D: Read + Seek>(
+pub(crate) fn find_absolute_backup_lba<D: Read + Seek>(
     f: &mut D,
     sector_size: disk::LogicalBlockSize,
 ) -> Result<u64> {
@@ -456,7 +456,7 @@ pub fn write_header(
 ) -> Result<uuid::Uuid> {
     debug!("opening {} for writing", p.display());
     let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-    let bak = find_backup_lba(&mut file, sector_size)?;
+    let bak = find_absolute_backup_lba(&mut file, sector_size)?;
     let guid = match uuid {
         Some(u) => u,
         None => {
@@ -489,7 +489,7 @@ fn test_compute_new_fdisk_no_header() {
         .read(true)
         .open(diskpath)
         .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
+    let bak = find_absolute_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
     println!("Back offset {}", bak);
     let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
     {
@@ -530,7 +530,12 @@ fn test_compute_new_fdisk_no_header() {
     assert_eq!(128, new_primary.num_parts);
     assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
 
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
+    let bh = read_backup_header(
+        &mut file,
+        new_primary.backup_lba,
+        *disk.logical_block_size(),
+    )
+    .unwrap();
     //backup header tests
     //current_lba and backup_lba should be flipped
     assert_eq!(h.backup_lba, new_backup.current_lba);
@@ -558,7 +563,7 @@ fn test_compute_new_fdisk_pass_header() {
         .read(true)
         .open(diskpath)
         .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
+    let bak = find_absolute_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
     println!("Back offset {}", bak);
     let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
     {
@@ -568,7 +573,7 @@ fn test_compute_new_fdisk_pass_header() {
             tempdisk.write_all(&data).unwrap();
         }
     };
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
+    let bh = read_backup_header(&mut file, h.backup_lba, *disk.logical_block_size()).unwrap();
     let mbr = crate::mbr::ProtectiveMBR::new();
     mbr.overwrite_lba0(&mut tempdisk).unwrap();
     let new_primary = Header::compute_new(
@@ -639,7 +644,7 @@ fn test_compute_new_gpt_no_header() {
         .read(true)
         .open(diskpath)
         .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
+    let bak = find_absolute_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
     println!("Back offset {}", bak);
     let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
     {
@@ -677,7 +682,12 @@ fn test_compute_new_gpt_no_header() {
     assert_eq!(128, new_primary.num_parts);
     assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
 
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
+    let bh = read_backup_header(
+        &mut file,
+        new_primary.backup_lba,
+        *disk.logical_block_size(),
+    )
+    .unwrap();
     //backup header tests
     //current_lba and backup_lba should be flipped
     assert_eq!(h.backup_lba, new_backup.current_lba);
@@ -705,7 +715,7 @@ fn test_compute_new_fdisk_gpt_header() {
         .read(true)
         .open(diskpath)
         .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
+    let bak = find_absolute_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
     println!("Back offset {}", bak);
     let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
     {
@@ -715,7 +725,7 @@ fn test_compute_new_fdisk_gpt_header() {
             tempdisk.write_all(&data).unwrap();
         }
     };
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
+    let bh = read_backup_header(&mut file, h.backup_lba, *disk.logical_block_size()).unwrap();
     let mbr = crate::mbr::ProtectiveMBR::new();
     mbr.overwrite_lba0(&mut tempdisk).unwrap();
     let new_primary = Header::compute_new(

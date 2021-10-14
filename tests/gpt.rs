@@ -3,7 +3,7 @@ use gpt;
 use gpt::disk;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
-use std::io::{SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::path;
 use tempfile::NamedTempFile;
 
@@ -143,25 +143,51 @@ fn test_create_aligned_on_device() {
         .logical_block_size(disk::LogicalBlockSize::Lb512)
         .create_from_device(mem_device, None)
         .unwrap();
-    gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
+    gdisk
+        .update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new())
+        .unwrap();
 
     // 00-33: MBR, GPT Header / Info
     // 40-51: Part 1 - 0.75 disk pages
     // 56-61: Part 2 - 0.75 disk pagess
     // 62-95: GPT Backup
-    assert!(gdisk.add_partition("test1", 6 * 1024, gpt::partition_types::BASIC, 0, Some(ALIGNMENT)).is_ok(),
-            "unexpected error writing first aligned partition: should start at LBA 40, end at 59");
+    assert!(
+        gdisk
+            .add_partition(
+                "test1",
+                6 * 1024,
+                gpt::partition_types::BASIC,
+                0,
+                Some(ALIGNMENT)
+            )
+            .is_ok(),
+        "unexpected error writing first aligned partition: should start at LBA 40, end at 59"
+    );
 
     assert!(gdisk.add_partition("test2", 8 * 1024, gpt::partition_types::LINUX_FS, 0, Some(ALIGNMENT)).is_err(),
             "expected error writing over-sized second aligned partition: impossible addressing starting at LBA 56 ending at LBA 63 shouldn't fit with GPT backup");
 
-    assert!(gdisk.add_partition("test2", 6 * 1024, gpt::partition_types::LINUX_FS, 0, Some(ALIGNMENT)).is_ok(),
-            "unexpected error writing second aligned partition: should start at LBA 56, end at 61");
+    assert_eq!(
+        gdisk
+            .add_partition(
+                "test2",
+                3 * 1024,
+                gpt::partition_types::LINUX_FS,
+                0,
+                Some(ALIGNMENT)
+            )
+            .unwrap(),
+        2
+    );
 
     let mut mem_device = gdisk.write().unwrap();
+    mem_device.seek(std::io::SeekFrom::Start(0));
+    let len = mem_device.seek(std::io::SeekFrom::End(0)).unwrap();
+    mem_device.seek(std::io::SeekFrom::Start(0));
+    assert_eq!(len, 1024 * 48);
+
     let mut final_bytes = vec![0u8; TOTAL_BYTES];
     mem_device.read_exact(&mut final_bytes).unwrap();
-
 }
 
 fn t_read_bytes(device: &mut gpt::DiskDeviceObject, offset: u64, bytes: usize) -> Vec<u8> {

@@ -155,7 +155,7 @@ impl GptConfig {
 
         // Proper GPT disk, fully inspect its layout.
         let h1 = header::read_primary_header(&mut device, self.lb_size)?;
-        let h2 = header::read_backup_header(&mut device, self.lb_size)?;
+        let h2 = header::read_backup_header(&mut device, h1.backup_lba, self.lb_size)?;
         let table = partition::file_read_partitions(&mut device, &h1, self.lb_size)?;
         let disk = GptDisk {
             config: self,
@@ -427,11 +427,25 @@ impl<'a> GptDisk<'a> {
         pp: BTreeMap<u32, partition::Partition>,
     ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
-        let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
+        let bak = header::find_absolute_backup_lba(&mut self.device, self.config.lb_size)?;
         let h1 = header::Header::compute_new(
-            true, &pp, self.guid, bak, &self.primary_header, self.config.lb_size, None)?;
+            true,
+            &pp,
+            self.guid,
+            bak,
+            &self.primary_header,
+            self.config.lb_size,
+            None,
+        )?;
         let h2 = header::Header::compute_new(
-            false, &pp, self.guid, bak, &self.backup_header, self.config.lb_size, None)?;
+            false,
+            &pp,
+            self.guid,
+            bak,
+            &self.backup_header,
+            self.config.lb_size,
+            None,
+        )?;
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
         self.partitions = pp;
@@ -448,11 +462,25 @@ impl<'a> GptDisk<'a> {
         num_parts: u32,
     ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
-        let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
+        let bak = header::find_absolute_backup_lba(&mut self.device, self.config.lb_size)?;
         let h1 = header::Header::compute_new(
-            true, &pp, self.guid, bak, &self.primary_header, self.config.lb_size, Some(num_parts))?;
+            true,
+            &pp,
+            self.guid,
+            bak,
+            &self.primary_header,
+            self.config.lb_size,
+            Some(num_parts),
+        )?;
         let h2 = header::Header::compute_new(
-            false, &pp, self.guid, bak, &self.backup_header, self.config.lb_size, Some(num_parts))?;
+            false,
+            &pp,
+            self.guid,
+            bak,
+            &self.backup_header,
+            self.config.lb_size,
+            Some(num_parts),
+        )?;
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
         self.partitions = pp;
@@ -488,7 +516,7 @@ impl<'a> GptDisk<'a> {
         debug!("Computing new headers");
         trace!("old primary header: {:?}", self.primary_header);
         trace!("old backup header: {:?}", self.backup_header);
-        let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
+        let bak = header::find_absolute_backup_lba(&mut self.device, self.config.lb_size)?;
         trace!("old backup lba: {}", bak);
         let primary_header = self.primary_header.clone().unwrap();
         let backup_header = self.backup_header.clone();
