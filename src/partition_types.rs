@@ -122,7 +122,10 @@ impl Type {
 
 impl Default for Type {
     fn default() -> Type {
-        Type { guid: "00000000-0000-0000-0000-000000000000", os: OperatingSystem::None }
+        Type {
+            guid: "00000000-0000-0000-0000-000000000000",
+            os: OperatingSystem::None,
+        }
     }
 }
 

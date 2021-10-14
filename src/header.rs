@@ -66,13 +66,11 @@ impl Header {
         // If we're creating the table from scratch, make sure the table contains enough
         // room to be UEFI compliant.
         let parts = match num_parts {
-            Some(p) => {p}
-            None => {
-                match original_header {
-                    Some(header) => header.num_parts,
-                    None => (pp.iter().filter(|p| p.1.is_used()).count() as u32).max(128),
-                }
-            }
+            Some(p) => p,
+            None => match original_header {
+                Some(header) => header.num_parts,
+                None => (pp.iter().filter(|p| p.1.is_used()).count() as u32).max(128),
+            },
         };
         //though usually 128, it might be a different number
         let part_size = match original_header {
@@ -101,9 +99,9 @@ impl Header {
             Some(_) => {
                 // last is inclusive: end of disk is (partition array) (backup header)
                 backup_offset
-                .checked_sub(part_array_num_lbs + 1)
-                .ok_or_else(|| Error::new(ErrorKind::Other, "header underflow - last usable"))?
-            },
+                    .checked_sub(part_array_num_lbs + 1)
+                    .ok_or_else(|| Error::new(ErrorKind::Other, "header underflow - last usable"))?
+            }
             None => {
                 match original_header {
                     Some(header) => header.last_usable,
@@ -111,7 +109,9 @@ impl Header {
                         // last is inclusive: end of disk is (partition array) (backup header)
                         backup_offset
                             .checked_sub(part_array_num_lbs + 1)
-                            .ok_or_else(|| Error::new(ErrorKind::Other, "header underflow - last usable"))?
+                            .ok_or_else(|| {
+                                Error::new(ErrorKind::Other, "header underflow - last usable")
+                            })?
                     }
                 }
             }
@@ -346,6 +346,8 @@ pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Res
     );
     reader.seek(SeekFrom::Current(8))?;
 
+    debug!("got sigstr: {:?}", sigstr);
+
     if sigstr != "EFI PART" {
         return Err(Error::new(ErrorKind::Other, "invalid GPT signature"));
     };
@@ -502,18 +504,30 @@ fn test_compute_new_fdisk_no_header() {
             tempdisk.write_all(&data).unwrap();
         }
     };
-    let new_primary =
-        Header::compute_new(true, &partitions, uuid::Uuid::new_v4(), bak, &None, lb_size, None).unwrap();
+    let new_primary = Header::compute_new(
+        true,
+        &partitions,
+        uuid::Uuid::new_v4(),
+        bak,
+        &None,
+        lb_size,
+        None,
+    )
+    .unwrap();
     println!("new primary header {:#?}", new_primary);
-    let new_backup =
-        Header::compute_new(false, &partitions, uuid::Uuid::new_v4(), bak, &None, lb_size, None).unwrap();
+    let new_backup = Header::compute_new(
+        false,
+        &partitions,
+        uuid::Uuid::new_v4(),
+        bak,
+        &None,
+        lb_size,
+        None,
+    )
+    .unwrap();
     println!("new backup header {:#?}", new_backup);
-    new_primary
-        .write_primary(&mut tempdisk, lb_size)
-        .unwrap();
-    new_backup
-        .write_backup(&mut tempdisk, lb_size)
-        .unwrap();
+    new_primary.write_primary(&mut tempdisk, lb_size).unwrap();
+    new_backup.write_backup(&mut tempdisk, lb_size).unwrap();
     let mbr = crate::mbr::ProtectiveMBR::new();
     mbr.overwrite_lba0(&mut tempdisk).unwrap();
     assert_eq!(h.signature, new_primary.signature);
@@ -654,18 +668,30 @@ fn test_compute_new_gpt_no_header() {
             tempdisk.write_all(&data).unwrap();
         }
     };
-    let new_primary =
-        Header::compute_new(true, &partitions, uuid::Uuid::new_v4(), bak, &None, lb_size, None).unwrap();
+    let new_primary = Header::compute_new(
+        true,
+        &partitions,
+        uuid::Uuid::new_v4(),
+        bak,
+        &None,
+        lb_size,
+        None,
+    )
+    .unwrap();
     println!("new primary header {:#?}", new_primary);
-    let new_backup =
-        Header::compute_new(false, &partitions, uuid::Uuid::new_v4(), bak, &None, lb_size, None).unwrap();
+    let new_backup = Header::compute_new(
+        false,
+        &partitions,
+        uuid::Uuid::new_v4(),
+        bak,
+        &None,
+        lb_size,
+        None,
+    )
+    .unwrap();
     println!("new backup header {:#?}", new_backup);
-    new_primary
-        .write_primary(&mut tempdisk, lb_size)
-        .unwrap();
-    new_backup
-        .write_backup(&mut tempdisk, lb_size)
-        .unwrap();
+    new_primary.write_primary(&mut tempdisk, lb_size).unwrap();
+    new_backup.write_backup(&mut tempdisk, lb_size).unwrap();
     let mbr = crate::mbr::ProtectiveMBR::new();
     mbr.overwrite_lba0(&mut tempdisk).unwrap();
     assert_eq!(h.signature, new_primary.signature);
