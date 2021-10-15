@@ -259,10 +259,10 @@ fn test_helper_gptdisk_write_efi_unused_partition_entries(lb_size: disk::Logical
     // Should NOT have overwritten the MBR (we have to generate a protective MBR explicitly using mbr module)
     assert_eq!(
         t_read_bytes(&mut mem_device, 0, lb_bytes_usize),
-        vec![255u8; lb_bytes_usize]
+        vec![255_u8; lb_bytes_usize]
     );
     // Should have overwritten the header
-    assert_ne!(t_read_bytes(&mut mem_device, lb_bytes, 92), vec![255u8; 92]);
+    assert_ne!(t_read_bytes(&mut mem_device, lb_bytes, 92), vec![255_u8; 92]);
     // According to the spec, the rest of the sector containing the header should be zeros.
     assert_eq!(
         t_read_bytes(&mut mem_device, lb_bytes + 92, lb_bytes_usize - 92),

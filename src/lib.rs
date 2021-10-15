@@ -137,7 +137,7 @@ impl GptConfig {
 
     /// Open the GPT disk at the given path and inspect it according
     /// to configuration options.
-    pub fn open(self, diskpath: &path::Path) -> io::Result<GptDisk> {
+    pub fn open(self, diskpath: impl AsRef<path::Path>) -> io::Result<GptDisk<'static>> {
         let file = Box::new(
             fs::OpenOptions::new()
                 .write(self.writable)
@@ -453,6 +453,30 @@ impl<'a> GptDisk<'a> {
         )?;
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
+        self.partitions = pp;
+        self.config.initialized = true;
+        Ok(self)
+    }
+
+    /// Update current partition table without touching backups
+    ///
+    /// No changes are recorded to disk until `write()` is called.
+    pub fn update_partitions_safe(
+        &mut self,
+        pp: BTreeMap<u32, partition::Partition>,
+    ) -> io::Result<&Self> {
+        // TODO(lucab): validate partitions.
+        let bak = header::find_absolute_backup_lba(&mut self.device, self.config.lb_size)?;
+        let h1 = header::Header::compute_new(
+            true,
+            &pp,
+            self.guid,
+            bak,
+            &self.primary_header,
+            self.config.lb_size,
+            None
+        )?;
+        self.primary_header = Some(h1);
         self.partitions = pp;
         self.config.initialized = true;
         Ok(self)
