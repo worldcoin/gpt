@@ -147,8 +147,12 @@ impl Partition {
         lb_size: disk::LogicalBlockSize,
         bytes_per_partition: u32,
     ) -> Result<()> {
-        trace!("writing {} unused partition entries starting at index {}, start_lba={}",
-            number_entries, starting_partition_index, start_lba);
+        trace!(
+            "writing {} unused partition entries starting at index {}, start_lba={}",
+            number_entries,
+            starting_partition_index,
+            start_lba
+        );
         let pstart = start_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
