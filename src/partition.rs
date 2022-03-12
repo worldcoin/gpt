@@ -232,7 +232,7 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
     for _ in 0..36 {
         let b = u16::from_le_bytes(read_exact_buff!(bbuff, rdr, 2));
         if b == 0 {
-            break
+            break;
         }
         namebytes.push(b);
     }
@@ -326,6 +326,127 @@ pub fn file_read_partitions<D: Read + Seek>(
     }
 
     Ok(parts)
+}
+
+/// TakePartition ()
+pub struct TakePartition<'a> {
+    inner: Partition,
+    disk: crate::DiskDeviceObject<'a>,
+    /// lb_size
+    pub lb_size: disk::LogicalBlockSize,
+    limit: u64,
+    cursor: u64,
+}
+
+impl TakePartition<'_> {
+    /// Create limited, readable representation of partition from larger disk object and partition
+    /// instance
+    pub fn take(
+        part: Partition,
+        disk: crate::DiskDeviceObject<'_>,
+        lb_size: disk::LogicalBlockSize,
+        limit: u64,
+    ) -> TakePartition {
+        TakePartition {
+            inner: part,
+            disk,
+            lb_size,
+            limit,
+            cursor: 0,
+        }
+    }
+
+    /// bytes_start
+    pub fn bytes_start(&self) -> Result<u64> {
+        self.inner.bytes_start(self.lb_size)
+    }
+
+    /// bytes_len
+    pub fn bytes_len(&self) -> Result<u64> {
+        self.inner.bytes_len(self.lb_size)
+    }
+}
+
+impl std::io::Seek for TakePartition<'_> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+        match pos {
+            SeekFrom::Start(seek) => self.cursor = seek,
+            SeekFrom::End(seek) => {
+                // This should be updated to use `u64::checked_add_signed(..)` once the
+                // mixed_integer_ops API has stabilized (https://github.com/rust-lang/rust/issues/87840)
+                let seek: u64 = match seek.is_positive() {
+                    true => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "seek overflow - attempted to seek outside of partition bounds",
+                        ))
+                    }
+                    false => seek.unsigned_abs(),
+                };
+                self.cursor = self
+                    .bytes_len()?
+                    .checked_sub(1)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "partition length underflow - 0 bytes?",
+                        )
+                    })?
+                    .checked_add(seek)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "partition length underflow - ",
+                        )
+                    })?;
+            }
+            SeekFrom::Current(seek) => {
+                self.cursor =
+                    match seek.is_positive() {
+                        true => self
+                            .cursor
+                            .checked_add(seek.unsigned_abs())
+                            .ok_or_else(|| {
+                                std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("seek overflow - attempted seek outside of partition bounds"),
+                    )
+                            })?,
+                        false => self
+                            .cursor
+                            .checked_sub(seek.unsigned_abs())
+                            .ok_or_else(|| {
+                                std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("seek underflow - attempted seek before beginning (0) on partition bounds"),
+                    )
+                            })?,
+                    };
+            }
+        }
+        self.disk.seek(std::io::SeekFrom::Start(
+            self.bytes_start()?
+                .checked_add(self.cursor)
+                .ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::Other, "disk bounds overflow")
+                })?,
+        ))?;
+        Ok(self.cursor)
+    }
+}
+
+impl std::io::Read for TakePartition<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        // Don't call into inner reader at all at EOF because it may still block
+        if self.limit == 0 {
+            return Ok(0);
+        }
+
+        let max = std::cmp::min(buf.len() as u64, self.limit) as usize;
+        let n = self.disk.read(&mut buf[..max])?;
+        self.limit -= n as u64;
+        Ok(n)
+    }
 }
 
 #[cfg(test)]

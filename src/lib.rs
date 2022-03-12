@@ -474,7 +474,7 @@ impl<'a> GptDisk<'a> {
             bak,
             &self.primary_header,
             self.config.lb_size,
-            None
+            None,
         )?;
         self.primary_header = Some(h1);
         self.partitions = pp;
