@@ -369,68 +369,62 @@ impl TakePartition<'_> {
 
 impl std::io::Seek for TakePartition<'_> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        match pos {
-            SeekFrom::Start(seek) => self.cursor = seek,
+        let bytes_len = self.bytes_len()?;
+        let from_start = match pos {
+            SeekFrom::Start(seek) => seek,
             SeekFrom::End(seek) => {
-                // This should be updated to use `u64::checked_add_signed(..)` once the
-                // mixed_integer_ops API has stabilized (https://github.com/rust-lang/rust/issues/87840)
-                let seek: u64 = match seek.is_positive() {
-                    true => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "seek overflow - attempted to seek outside of partition bounds",
-                        ))
-                    }
-                    false => seek.unsigned_abs(),
-                };
-                self.cursor = self
-                    .bytes_len()?
-                    .checked_sub(1)
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "partition length underflow - 0 bytes?",
-                        )
-                    })?
-                    .checked_add(seek)
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "partition length underflow - ",
-                        )
-                    })?;
+                // SeekFrom::End(0) should be bytes_len.
+                let from_start: u64 = bytes_len.checked_add_signed(seek).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!(
+                            "arithmetic overflow - adding bytes_len ({}) to {} would not be a u64",
+                            bytes_len, seek
+                        ),
+                    )
+                })?;
+
+                from_start
             }
             SeekFrom::Current(seek) => {
-                self.cursor =
-                    match seek.is_positive() {
-                        true => self
-                            .cursor
-                            .checked_add(seek.unsigned_abs())
-                            .ok_or_else(|| {
-                                std::io::Error::new(
+                let from_start: u64 = self.cursor.checked_add_signed(seek).ok_or_else(|| {
+                    std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("seek overflow - attempted seek outside of partition bounds"),
+                        format!(
+                            "arithmetic overflow - adding current cursor ({}) to {} would not be a u64",
+                            self.cursor, seek
+                        ),
                     )
-                            })?,
-                        false => self
-                            .cursor
-                            .checked_sub(seek.unsigned_abs())
-                            .ok_or_else(|| {
-                                std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("seek underflow - attempted seek before beginning (0) on partition bounds"),
-                    )
-                            })?,
-                    };
+                })?;
+
+                from_start
             }
+        };
+
+        if from_start >= bytes_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!(
+                    "partition length overflow - tried to seek to {} but maximum should be {}",
+                    from_start,
+                    bytes_len - 1
+                ),
+            ));
         }
+        let bytes_start = self.bytes_start()?;
         self.disk.seek(std::io::SeekFrom::Start(
-            self.bytes_start()?
-                .checked_add(self.cursor)
-                .ok_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "disk bounds overflow")
-                })?,
+            bytes_start.checked_add(from_start).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!(
+                        "arithmetic overflow - adding bytes_start ({}) to {} would not be a u64",
+                        bytes_start, from_start
+                    ),
+                )
+            })?,
         ))?;
+        self.cursor = from_start;
+
         Ok(self.cursor)
     }
 }
